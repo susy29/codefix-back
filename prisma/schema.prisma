@@ -1,0 +1,162 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//
+// ENUMS
+//
+
+enum UserRole {
+  ADMIN
+  STUDENT
+}
+
+enum ActivityType {
+  QUIZ              // Cuestionario de opción múltiple
+  MULTIPLE_CHOICE   // Preguntas individuales de opción múltiple
+  TRUE_FALSE        // Verdadero/Falso
+  CODE_CHALLENGE    // Retos de código
+  OPEN_QUESTION     // Pregunta abierta / Ensayo / Investigación
+  QUESTION          // Compatibilidad antigua
+  EXERCISE          // Compatibilidad antigua
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+  BASIC
+  INTERMEDIATE
+  ADVANCED
+}
+
+// ✅ NUEVO ENUM AGREGADO
+enum SubmissionStatus {
+  PENDING
+  COMPLETED
+  LATE
+}
+
+//
+// MODELS
+//
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(STUDENT)
+  xp           Int      @default(0)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  activities   Activity[]
+  submissions  Submission[]
+  userProgress UserProgress[]
+
+  @@map("users")
+}
+
+model Subject {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  units Unit[]
+
+  @@map("subjects")
+}
+
+model Unit {
+  id          String   @id @default(uuid())
+  subjectId   String   @map("subject_id")
+  name        String
+  description String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  subject   Subject    @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  subtopics Subtopic[]
+
+  @@map("units")
+}
+
+model Subtopic {
+  id          String   @id @default(uuid())
+  unitId      String   @map("unit_id")
+  name        String
+  description String?
+  content     String?  @db.Text
+  order       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  unit       Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  activities Activity[]
+
+  @@map("subtopics")
+}
+
+model Activity {
+  id           String       @id @default(uuid())
+  subtopicId   String       @map("subtopic_id")
+  createdById  String       @map("created_by_id")
+  type         ActivityType
+  difficulty   Difficulty   @default(EASY)
+  title        String
+  description  String?
+  content      Json
+  aiGenerated  Boolean      @default(false) @map("ai_generated")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  subtopic    Subtopic     @relation(fields: [subtopicId], references: [id], onDelete: Cascade)
+  createdBy   User         @relation(fields: [createdById], references: [id])
+  submissions Submission[]
+
+  @@index([subtopicId])
+  @@index([createdById])
+  @@index([type])
+  @@index([difficulty])
+  @@map("activities")
+}
+
+model Submission {
+  id          String           @id @default(uuid())
+  userId      String           @map("user_id")
+  activityId  String           @map("activity_id")
+  answers     Json
+  score       Float?
+  feedback    String?          @db.Text
+  status      SubmissionStatus @default(PENDING) // ✅ CAMPO AGREGADO
+  completedAt DateTime         @default(now()) @map("completed_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([activityId])
+  @@map("submissions")
+}
+
+model UserProgress {
+  userId      String   @map("user_id")
+  subtopicId  String   @map("subtopic_id")
+  completed   Boolean  @default(false)
+  score       Float?
+  completedAt DateTime @default(now()) @map("completed_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, subtopicId])
+  @@map("user_progress")
+}
