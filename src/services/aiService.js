@@ -1,194 +1,197 @@
-const Anthropic = require('@anthropic-ai/sdk');
+// src/services/aiService.js
+const Anthropic = require("@anthropic-ai/sdk");
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+function extractJson(text) {
+  const s = String(text || "");
+  const match = s.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("No se pudo extraer JSON de la respuesta de la IA.");
+  return JSON.parse(match[0]);
+}
+
 /**
- * Genera una actividad educativa usando Claude
+ * Genera una actividad educativa usando Claude (QUIZ / OPEN_QUESTION / CODE_CHALLENGE)
  */
-async function generateActivity(context, userPrompt = '') {
-  const { subject, unit, subtopic, type, difficulty, questionsCount } = context;
+async function generateActivity(context, userPrompt = "") {
+  const { subject, unit, subtopic, type, difficulty, questionsCount, studyText } = context;
 
   const typeInstructions = {
-    QUIZ: 'cuestionario de opción múltiple con 4 opciones',
-    MULTIPLE_CHOICE: 'preguntas de opción múltiple con 4 opciones',
-    TRUE_FALSE: 'preguntas de verdadero o falso',
-    CODE_CHALLENGE: 'retos de programación con código',
-    OPEN_QUESTION: 'preguntas abiertas que requieren respuesta escrita',
-    QUESTION: 'preguntas educativas',
-    EXERCISE: 'ejercicios prácticos'
+    QUIZ: "cuestionario de opción múltiple con 4 opciones",
+    MULTIPLE_CHOICE: "preguntas de opción múltiple con 4 opciones",
+    TRUE_FALSE: "preguntas de verdadero o falso",
+    CODE_CHALLENGE: "retos de programación con código",
+    OPEN_QUESTION: "preguntas abiertas que requieren respuesta escrita",
+    QUESTION: "preguntas educativas",
+    EXERCISE: "ejercicios prácticos",
   };
 
   const difficultyInstructions = {
-    EASY: 'conceptos básicos y fundamentales, claros y directos',
-    MEDIUM: 'aplicación de conceptos y resolución de problemas moderados',
-    HARD: 'análisis profundo, casos complejos y razonamiento avanzado',
-    BASIC: 'conceptos básicos y fundamentales',
-    INTERMEDIATE: 'nivel intermedio de complejidad',
-    ADVANCED: 'nivel avanzado y complejo'
+    EASY: "conceptos básicos y fundamentales, claros y directos",
+    MEDIUM: "aplicación de conceptos y resolución de problemas moderados",
+    HARD: "análisis profundo, casos complejos y razonamiento avanzado",
+    BASIC: "conceptos básicos y fundamentales",
+    INTERMEDIATE: "nivel intermedio de complejidad",
+    ADVANCED: "nivel avanzado y complejo",
   };
 
-  const systemPrompt = `Eres un experto profesor universitario creando material educativo de alta calidad.
+  // Importante: meter el texto del subtema para que sí se base en eso
+  const systemPrompt = `Eres un profesor universitario experto creando actividades educativas de alta calidad.
 
-**CONTEXTO EDUCATIVO:**
+CONTEXTO:
 - Materia: ${subject}
 - Unidad: ${unit}
 - Subtema: ${subtopic}
-- Tipo de actividad: ${typeInstructions[type] || 'cuestionario'}
-- Dificultad: ${difficulty} (${difficultyInstructions[difficulty]})
-- Cantidad de preguntas: ${questionsCount}
+- Tipo de actividad: ${type} (${typeInstructions[type] || "actividad"})
+- Dificultad: ${difficulty} (${difficultyInstructions[difficulty] || "nivel medio"})
+- Cantidad de preguntas (si aplica): ${questionsCount}
 
-${userPrompt ? `**INSTRUCCIONES ADICIONALES DEL PROFESOR:**\n${userPrompt}\n` : ''}
+TEXTO BASE DEL SUBTEMA (lo que el alumno debe estudiar):
+${studyText || "(vacío)"}
 
-**TU TAREA:**
-Genera un ${typeInstructions[type]} educativo de calidad universitaria.
+${userPrompt ? `INSTRUCCIONES DEL PROFESOR:\n${userPrompt}\n` : ""}
 
-**FORMATO DE RESPUESTA (JSON):**
+REGLAS:
+- Debes basarte EN EL TEXTO BASE del subtema.
+- Para QUIZ, genera preguntas con 4 opciones, correctAnswer (0..3), explanation y points (5..20).
+- Para OPEN_QUESTION o CODE_CHALLENGE, genera un enunciado completo con:
+  - objetivo
+  - descripción
+  - criterios de evaluación (con porcentajes o puntos)
+  - entregables
+  - preguntas de reflexión (si aplica)
+- Responde ÚNICAMENTE con JSON válido.
+
+FORMATO JSON:
 {
-  "title": "Título atractivo y descriptivo del cuestionario",
-  "description": "Descripción breve de qué cubre esta actividad",
+  "title": "Título",
+  "description": "Descripción",
   "estimatedTime": 15,
+  "studyText": "Texto base a estudiar (puedes resumirlo o dejarlo igual)",
+  "instructions": "Instrucciones breves",
+  "generatedText": "Enunciado completo (Moodle-like)",
   "questions": [
     {
       "id": 1,
-      "question": "Pregunta clara y bien formulada",
-      "options": ["Opción A", "Opción B", "Opción C", "Opción D"],
+      "question": "Pregunta",
+      "options": ["A","B","C","D"],
       "correctAnswer": 0,
-      "explanation": "Explicación detallada de por qué esta respuesta es correcta",
+      "explanation": "Explicación",
       "points": 10
     }
   ]
-}
+}`;
 
-**REGLAS IMPORTANTES:**
-1. Todas las preguntas deben ser claras y sin ambigüedades
-2. Las opciones incorrectas deben ser plausibles pero claramente incorrectas
-3. Cada pregunta debe tener una explicación educativa
-4. Varía los puntos según la complejidad (5-20 puntos)
-5. El campo "correctAnswer" es el índice (0-3) de la respuesta correcta
-6. Responde ÚNICAMENTE con el JSON válido, sin texto adicional
+  const message = await anthropic.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 4000,
+    temperature: 0.7,
+    messages: [{ role: "user", content: systemPrompt }],
+  });
 
-**GENERA EL CUESTIONARIO AHORA:**`;
+  const content = message.content?.[0]?.text ?? "";
+  const generated = extractJson(content);
 
-  try {
-    console.log('🤖 Generando actividad con IA...');
-    console.log('📝 Contexto:', { subject, unit, subtopic, type, difficulty });
-    
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
-      temperature: 0.7,
-      messages: [{
-        role: 'user',
-        content: systemPrompt
-      }]
-    });
+  // Validaciones mínimas
+  if (!generated.title) generated.title = "Actividad generada";
+  if (!generated.description) generated.description = "";
+  if (!generated.estimatedTime) generated.estimatedTime = 15;
 
-    const content = message.content[0].text;
-    console.log('✅ Respuesta recibida de Claude');
-
-    // Extraer JSON de la respuesta
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    
-    if (!jsonMatch) {
-      console.error('❌ No se encontró JSON en la respuesta:', content.substring(0, 200));
-      throw new Error('No se pudo extraer JSON de la respuesta de la IA');
+  // Para QUIZ, aseguramos estructura de questions
+  if (type === "QUIZ") {
+    if (!Array.isArray(generated.questions) || generated.questions.length === 0) {
+      throw new Error("La IA no devolvió questions para QUIZ.");
     }
-
-    const generated = JSON.parse(jsonMatch[0]);
-    
-    // Validar estructura
-    if (!generated.title || !generated.questions || !Array.isArray(generated.questions)) {
-      throw new Error('Estructura JSON inválida recibida de la IA');
-    }
-
-    // Validar que cada pregunta tenga la estructura correcta
-    generated.questions.forEach((q, index) => {
-      if (!q.question || !q.options || !Array.isArray(q.options)) {
-        throw new Error(`Pregunta ${index + 1} tiene estructura inválida`);
+    generated.questions.forEach((q, i) => {
+      if (!q.question || !Array.isArray(q.options)) {
+        throw new Error(`Pregunta ${i + 1} inválida`);
       }
-      if (q.correctAnswer === undefined || q.correctAnswer < 0 || q.correctAnswer >= q.options.length) {
-        throw new Error(`Pregunta ${index + 1} tiene correctAnswer inválido`);
+      if (q.correctAnswer === undefined || q.correctAnswer < 0 || q.correctAnswer > 3) {
+        throw new Error(`Pregunta ${i + 1} correctAnswer inválido`);
       }
     });
-
-    console.log(`✅ Actividad generada: "${generated.title}" con ${generated.questions.length} preguntas`);
-    
-    return generated;
-
-  } catch (error) {
-    console.error('❌ Error generando actividad con IA:', error);
-    throw new Error(`Error al generar actividad: ${error.message}`);
+  } else {
+    // Para NO-QUIZ, aseguramos texto
+    if (!generated.generatedText && !generated.instructions) {
+      generated.instructions = userPrompt || "Lee el enunciado y responde.";
+      generated.generatedText = generated.instructions;
+    }
   }
+
+  // Garantizar que studyText exista (para mostrar antes del quiz)
+  if (!generated.studyText) generated.studyText = studyText || "";
+
+  return generated;
 }
 
 /**
- * Regenera una pregunta específica
+ * ✅ Califica una entrega abierta/código con base en el enunciado y criterios
  */
-async function regenerateQuestion(originalQuestion, context, reason = '') {
-  const prompt = `Regenera esta pregunta mejorándola:
+async function evaluateOpenSubmission({
+  activityType,
+  title,
+  studyText,
+  instructions,
+  generatedText,
+  studentAnswer,
+}) {
+  const prompt = `Eres un profesor universitario. Debes CALIFICAR una entrega.
 
-**Pregunta Original:**
-${originalQuestion.question}
+TIPO: ${activityType}
+TÍTULO: ${title}
 
-**Opciones:**
-${originalQuestion.options.map((opt, i) => `${i + 1}. ${opt}`).join('\n')}
+=== TEXTO BASE (para estudiar) ===
+${studyText || "(vacío)"}
 
-**Respuesta Correcta:** Opción ${originalQuestion.correctAnswer + 1} - ${originalQuestion.options[originalQuestion.correctAnswer]}
+=== ENUNCIADO / INSTRUCCIONES ===
+${generatedText || instructions || "(vacío)"}
 
-**Contexto:** 
-- Materia: ${context.subject}
-- Subtema: ${context.subtopic}
-- Dificultad: ${context.difficulty}
+=== RESPUESTA DEL ESTUDIANTE ===
+${studentAnswer || "(vacío)"}
 
-${reason ? `**Razón para regenerar:** ${reason}` : ''}
+TAREA:
+1) Evalúa si cumple las instrucciones y criterios del enunciado.
+2) Asigna score 0..100.
+3) Retroalimentación específica.
+4) Si hay criterios (porcentaje/puntos), haz un desglose.
 
-Genera una nueva versión de esta pregunta manteniendo el mismo concepto pero con diferente redacción y opciones.
-
-Responde ÚNICAMENTE en formato JSON:
+RESPONDE SOLO JSON VÁLIDO:
 {
-  "question": "Nueva pregunta reformulada",
-  "options": ["Nueva opción A", "Nueva opción B", "Nueva opción C", "Nueva opción D"],
-  "correctAnswer": 0,
-  "explanation": "Explicación clara de por qué esta respuesta es correcta",
-  "points": 10
+  "score": 0,
+  "feedback": "texto",
+  "rubric": [
+    { "criterion": "Criterio", "points": 0, "maxPoints": 0, "notes": "..." }
+  ],
+  "strengths": ["..."],
+  "improvements": ["..."]
 }`;
 
-  try {
-    console.log('🔄 Regenerando pregunta...');
-    
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1500,
-      temperature: 0.8,
-      messages: [{ role: 'user', content: prompt }]
-    });
+  const message = await anthropic.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 1800,
+    temperature: 0.3,
+    messages: [{ role: "user", content: prompt }],
+  });
 
-    const content = message.content[0].text;
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    
-    if (!jsonMatch) {
-      throw new Error('No se pudo extraer JSON de la respuesta');
-    }
+  const content = message.content?.[0]?.text ?? "";
+  const parsed = extractJson(content);
 
-    const regenerated = JSON.parse(jsonMatch[0]);
-    
-    // Validar estructura
-    if (!regenerated.question || !regenerated.options || regenerated.correctAnswer === undefined) {
-      throw new Error('Estructura JSON inválida en pregunta regenerada');
-    }
+  let score = parsed.score;
+  if (typeof score === "string") score = Number(score);
+  if (typeof score !== "number" || Number.isNaN(score)) score = 0;
+  score = Math.max(0, Math.min(100, score));
 
-    console.log('✅ Pregunta regenerada exitosamente');
-    return regenerated;
+  const feedback = String(parsed.feedback ?? "").trim() || "Sin retroalimentación.";
+  const rubric = Array.isArray(parsed.rubric) ? parsed.rubric : [];
+  const strengths = Array.isArray(parsed.strengths) ? parsed.strengths : [];
+  const improvements = Array.isArray(parsed.improvements) ? parsed.improvements : [];
 
-  } catch (error) {
-    console.error('❌ Error regenerando pregunta:', error);
-    throw error;
-  }
+  return { score, feedback, rubric, strengths, improvements };
 }
 
 module.exports = {
   generateActivity,
-  regenerateQuestion
+  evaluateOpenSubmission,
 };
